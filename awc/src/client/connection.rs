@@ -169,7 +169,7 @@ impl Drop for H2ConnectionInner {
         // TODO: this can end up sending extraneous requests; see if there is a better way to handle
         if self
             .sender
-            .send_request(http::Request::new(()), true)
+            .send_request(http_1::Request::new(()), true)
             .is_err()
         {
             self.handle.abort();

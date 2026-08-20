@@ -48,7 +48,7 @@ async fn h2_ping_pong() -> io::Result<()> {
 
                 tokio::spawn(async move { conn.await.unwrap() });
 
-                let (res, _) = tx.send_request(::http::Request::new(()), true).unwrap();
+                let (res, _) = tx.send_request(http_1::Request::new(()), true).unwrap();
                 let res = res.await.unwrap();
 
                 assert_eq!(res.status().as_u16(), 200);

@@ -25,10 +25,11 @@ use crate::{
     body::{BodySize, BoxBody, MessageBody},
     config::ServiceConfig,
     header::{
-        HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE,
+        HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING,
+        UPGRADE,
     },
     service::HttpFlow,
-    Extensions, Method, OnConnectData, Payload, Request, Response, ResponseHead,
+    Extensions, Method, OnConnectData, Payload, Request, Response, ResponseHead, Uri, Version,
 };
 
 const CHUNK_SIZE: usize = 16_384;
@@ -117,13 +118,39 @@ where
                     let payload = crate::h2::Payload::new(body);
                     let pl = Payload::H2 { payload };
                     let mut req = Request::with_payload(pl);
-                    let head_req = parts.method == Method::HEAD;
+                    let head_req = parts.method == http_1::Method::HEAD;
+
+                    // h2 0.4 uses http 1 while Actix's public/internal request model remains
+                    // on http 0.2. Convert only at this transport boundary.
+                    let method = Method::from_bytes(parts.method.as_str().as_bytes())
+                        .map_err(|_| crate::error::DispatchError::InternalError)?;
+                    let uri = parts
+                        .uri
+                        .to_string()
+                        .parse::<Uri>()
+                        .map_err(|_| crate::error::DispatchError::InternalError)?;
+                    let version = match parts.version {
+                        http_1::Version::HTTP_09 => Version::HTTP_09,
+                        http_1::Version::HTTP_10 => Version::HTTP_10,
+                        http_1::Version::HTTP_11 => Version::HTTP_11,
+                        http_1::Version::HTTP_2 => Version::HTTP_2,
+                        http_1::Version::HTTP_3 => Version::HTTP_3,
+                        _ => return Poll::Ready(Err(crate::error::DispatchError::InternalError)),
+                    };
+                    let mut headers = HeaderMap::with_capacity(parts.headers.len());
+                    for (name, value) in &parts.headers {
+                        let name = HeaderName::from_bytes(name.as_str().as_bytes())
+                            .map_err(|_| crate::error::DispatchError::InternalError)?;
+                        let value = HeaderValue::from_bytes(value.as_bytes())
+                            .map_err(|_| crate::error::DispatchError::InternalError)?;
+                        headers.append(name, value);
+                    }
 
                     let head = req.head_mut();
-                    head.uri = parts.uri;
-                    head.method = parts.method;
-                    head.version = parts.version;
-                    head.headers = parts.headers.into();
+                    head.uri = uri;
+                    head.method = method;
+                    head.version = version;
+                    head.headers = headers;
                     head.peer_addr = this.peer_addr;
 
                     req.conn_data.clone_from(&this.conn_data);
@@ -153,6 +180,9 @@ where
                                 }
                                 DispatchError::ResponseBody(err) => {
                                     tracing::error!("Response payload stream error: {err:?}");
+                                }
+                                DispatchError::InvalidResponse => {
+                                    tracing::error!("Response metadata could not cross the HTTP/2 boundary");
                                 }
                             }
                         }
@@ -202,6 +232,7 @@ enum DispatchError {
     SendResponse(h2::Error),
     SendData(h2::Error),
     ResponseBody(Box<dyn StdError>),
+    InvalidResponse,
 }
 
 async fn handle_response<B>(
@@ -217,7 +248,7 @@ where
 
     // prepare response.
     let mut size = body.size();
-    let res = prepare_response(config, res.head(), &mut size);
+    let res = prepare_response(config, res.head(), &mut size)?;
     let eof_or_head = size.is_eof() || head_req;
 
     // send response head and return on eof.
@@ -277,13 +308,14 @@ fn prepare_response(
     config: ServiceConfig,
     head: &ResponseHead,
     size: &mut BodySize,
-) -> http::Response<()> {
+) -> Result<http_1::Response<()>, DispatchError> {
     let mut has_date = false;
     let mut skip_len = size != &BodySize::Stream;
 
-    let mut res = http::Response::new(());
-    *res.status_mut() = head.status;
-    *res.version_mut() = http::Version::HTTP_2;
+    let mut res = http_1::Response::new(());
+    *res.status_mut() = http_1::StatusCode::from_u16(head.status.as_u16())
+        .map_err(|_| DispatchError::InvalidResponse)?;
+    *res.version_mut() = http_1::Version::HTTP_2;
 
     // Content length
     match head.status {
@@ -301,17 +333,17 @@ fn prepare_response(
         BodySize::None | BodySize::Stream => {}
 
         BodySize::Sized(0) => {
-            #[allow(clippy::declare_interior_mutable_const)]
-            const HV_ZERO: HeaderValue = HeaderValue::from_static("0");
-            res.headers_mut().insert(CONTENT_LENGTH, HV_ZERO);
+            res.headers_mut()
+                .insert(http_1::header::CONTENT_LENGTH, http_1::HeaderValue::from_static("0"));
         }
 
         BodySize::Sized(len) => {
             let mut buf = itoa::Buffer::new();
 
             res.headers_mut().insert(
-                CONTENT_LENGTH,
-                HeaderValue::from_str(buf.format(*len)).unwrap(),
+                http_1::header::CONTENT_LENGTH,
+                http_1::HeaderValue::from_str(buf.format(*len))
+                    .map_err(|_| DispatchError::InvalidResponse)?,
             );
         }
     };
@@ -337,7 +369,11 @@ fn prepare_response(
             _ => {}
         }
 
-        res.headers_mut().append(key, value.clone());
+        let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
+            .map_err(|_| DispatchError::InvalidResponse)?;
+        let value = http_1::HeaderValue::from_bytes(value.as_bytes())
+            .map_err(|_| DispatchError::InvalidResponse)?;
+        res.headers_mut().append(key, value);
     }
 
     // set date header
@@ -345,11 +381,11 @@ fn prepare_response(
         let mut bytes = BytesMut::with_capacity(29);
         config.write_date_header_value(&mut bytes);
         res.headers_mut().insert(
-            DATE,
+            http_1::header::DATE,
             // SAFETY: serialized date-times are known ASCII strings
-            unsafe { HeaderValue::from_maybe_shared_unchecked(bytes.freeze()) },
+            unsafe { http_1::HeaderValue::from_maybe_shared_unchecked(bytes.freeze()) },
         );
     }
 
-    res
+    Ok(res)
 }

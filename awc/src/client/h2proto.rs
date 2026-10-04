@@ -111,7 +111,9 @@ where
         }
         let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
             .map_err(h2_boundary_error)?;
-        let value = http_1::HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
+        let sensitive = value.is_sensitive();
+        let mut value = http_1::HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
+        value.set_sensitive(sensitive);
         req.headers_mut().append(key, value);
     }
 
@@ -151,7 +153,9 @@ where
     let mut headers = HeaderMap::with_capacity(parts.headers.len());
     for (name, value) in &parts.headers {
         let name = HeaderName::from_bytes(name.as_str().as_bytes()).map_err(h2_boundary_error)?;
-        let value = HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
+        let sensitive = value.is_sensitive();
+        let mut value = HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
+        value.set_sensitive(sensitive);
         headers.append(name, value);
     }
 

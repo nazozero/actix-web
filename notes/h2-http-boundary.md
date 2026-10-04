@@ -39,7 +39,10 @@ aliased `http_1` only inside the h2 transport module and its direct tests.
    name/value from bytes. An impossible conversion terminates the H2 dispatch
    with a protocol `DispatchError`; it is never silently dropped or rewritten.
 2. H2 egress sets HTTP/2 explicitly, converts the status code numerically, and
-   copies each header byte-for-byte into a new `http_1::HeaderMap`.
+   copies each header byte-for-byte into a new `http_1::HeaderMap`. Both
+   server and client directions retain each value's `is_sensitive` flag and
+   duplicate-value order. This keeps Debug redaction and HPACK never-index
+   metadata intact for custom sensitive headers as well as standard names.
 3. Hop-by-hop header removal and body framing remain in the existing
    `prepare_response` owner. The port must not disable HTTP/2 or weaken those
    existing semantics.

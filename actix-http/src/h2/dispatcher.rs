@@ -141,8 +141,10 @@ where
                     for (name, value) in &parts.headers {
                         let name = HeaderName::from_bytes(name.as_str().as_bytes())
                             .map_err(|_| crate::error::DispatchError::InternalError)?;
-                        let value = HeaderValue::from_bytes(value.as_bytes())
+                        let sensitive = value.is_sensitive();
+                        let mut value = HeaderValue::from_bytes(value.as_bytes())
                             .map_err(|_| crate::error::DispatchError::InternalError)?;
+                        value.set_sensitive(sensitive);
                         headers.append(name, value);
                     }
 
@@ -371,8 +373,10 @@ fn prepare_response(
 
         let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
             .map_err(|_| DispatchError::InvalidResponse)?;
-        let value = http_1::HeaderValue::from_bytes(value.as_bytes())
+        let sensitive = value.is_sensitive();
+        let mut value = http_1::HeaderValue::from_bytes(value.as_bytes())
             .map_err(|_| DispatchError::InvalidResponse)?;
+        value.set_sensitive(sensitive);
         res.headers_mut().append(key, value);
     }
 

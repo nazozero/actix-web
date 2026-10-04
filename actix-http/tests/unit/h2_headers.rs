@@ -14,7 +14,9 @@ fn h2_header_conversions_preserve_each_values_sensitivity_and_bytes() {
     }
     let mut h2 = http_1::HeaderMap::new();
     for (name, value) in &original {
-        let converted = header_value_to_h2(value).ok().expect("valid h2 header value");
+        let converted = header_value_to_h2(value)
+            .ok()
+            .expect("valid h2 header value");
         assert_eq!(converted.as_bytes(), value.as_bytes());
         assert_eq!(converted.is_sensitive(), value.is_sensitive());
         if value.is_sensitive() {

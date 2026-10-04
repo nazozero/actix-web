@@ -394,7 +394,9 @@ fn prepare_response(
 
 // HTTP version conversion belongs to this transport boundary. Keep the
 // per-value flag alongside the bytes rather than inferring it from the name.
-fn header_value_from_h2(value: &http_1::HeaderValue) -> Result<HeaderValue, crate::error::DispatchError> {
+fn header_value_from_h2(
+    value: &http_1::HeaderValue,
+) -> Result<HeaderValue, crate::error::DispatchError> {
     let sensitive = value.is_sensitive();
     let mut value = HeaderValue::from_bytes(value.as_bytes())
         .map_err(|_| crate::error::DispatchError::InternalError)?;

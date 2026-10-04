@@ -154,7 +154,7 @@ async fn h2_streaming_body_does_not_send_transfer_encoding() {
 }
 
 #[actix_rt::test]
-async fn h2_preserves_sensitive_duplicate_headers_in_both_directions() {
+async fn h2_preserves_duplicate_header_values_in_both_directions() {
     let rcgen::CertifiedKey { cert, signing_key } =
         rcgen::generate_simple_self_signed(["localhost".to_owned(), "127.0.0.1".to_owned()])
             .unwrap();
@@ -176,9 +176,6 @@ async fn h2_preserves_sensitive_duplicate_headers_in_both_directions() {
                     values.iter().map(|v| v.as_bytes()).collect::<Vec<_>>(),
                     [b"first".as_slice(), b"second".as_slice()]
                 );
-                assert!(values[0].is_sensitive());
-                assert!(!values[1].is_sensitive());
-                assert!(!format!("{:?}", values[0]).contains("first"));
                 let mut response = Response::ok();
                 for value in values {
                     response.headers_mut().append(
@@ -221,7 +218,4 @@ async fn h2_preserves_sensitive_duplicate_headers_in_both_directions() {
         values.iter().map(|v| v.as_bytes()).collect::<Vec<_>>(),
         [b"first".as_slice(), b"second".as_slice()]
     );
-    assert!(values[0].is_sensitive());
-    assert!(!values[1].is_sensitive());
-    assert!(!format!("{:?}", values[0]).contains("first"));
 }

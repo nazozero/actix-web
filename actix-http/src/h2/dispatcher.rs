@@ -141,10 +141,7 @@ where
                     for (name, value) in &parts.headers {
                         let name = HeaderName::from_bytes(name.as_str().as_bytes())
                             .map_err(|_| crate::error::DispatchError::InternalError)?;
-                        let sensitive = value.is_sensitive();
-                        let mut value = HeaderValue::from_bytes(value.as_bytes())
-                            .map_err(|_| crate::error::DispatchError::InternalError)?;
-                        value.set_sensitive(sensitive);
+                        let value = header_value_from_h2(value)?;
                         headers.append(name, value);
                     }
 
@@ -377,10 +374,7 @@ fn prepare_response(
 
         let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
             .map_err(|_| DispatchError::InvalidResponse)?;
-        let sensitive = value.is_sensitive();
-        let mut value = http_1::HeaderValue::from_bytes(value.as_bytes())
-            .map_err(|_| DispatchError::InvalidResponse)?;
-        value.set_sensitive(sensitive);
+        let value = header_value_to_h2(value)?;
         res.headers_mut().append(key, value);
     }
 
@@ -397,3 +391,25 @@ fn prepare_response(
 
     Ok(res)
 }
+
+// HTTP version conversion belongs to this transport boundary. Keep the
+// per-value flag alongside the bytes rather than inferring it from the name.
+fn header_value_from_h2(value: &http_1::HeaderValue) -> Result<HeaderValue, crate::error::DispatchError> {
+    let sensitive = value.is_sensitive();
+    let mut value = HeaderValue::from_bytes(value.as_bytes())
+        .map_err(|_| crate::error::DispatchError::InternalError)?;
+    value.set_sensitive(sensitive);
+    Ok(value)
+}
+
+fn header_value_to_h2(value: &HeaderValue) -> Result<http_1::HeaderValue, DispatchError> {
+    let sensitive = value.is_sensitive();
+    let mut value = http_1::HeaderValue::from_bytes(value.as_bytes())
+        .map_err(|_| DispatchError::InvalidResponse)?;
+    value.set_sensitive(sensitive);
+    Ok(value)
+}
+
+#[cfg(test)]
+#[path = "../../tests/unit/h2_headers.rs"]
+mod header_tests;

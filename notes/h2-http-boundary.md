@@ -109,3 +109,10 @@ the library port. No other workspace manifest declares `h2`. `actix-web`,
 h2 type in this checkout. This closure excludes transitive h2 0.3 copies that
 remain in unrelated dependency paths; they cannot satisfy the concrete public
 types above and must not be used as an adapter.
+
+The local `HeaderValue` conversion tests cover both flags, duplicate values and
+opaque header bytes in each owner. The real trusted-TLS H2 round-trip covers
+duplicate byte order. h2 0.4.19's HPACK decoder currently discards the incoming
+never-index marker (its `LiteralNeverIndexed` branch has a tracking TODO), so
+that wire round-trip cannot assert a restored receiver-side sensitivity flag.
+This port preserves the local input flag; it does not change h2's decoder.

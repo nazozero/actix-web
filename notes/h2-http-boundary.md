@@ -1,6 +1,18 @@
-# Isolated `actix-http` h2 0.4 / http 1 migration PoC
+# Maintained `actix-http` h2 0.4 / http 1 transport boundary
 
-## Fixed source
+## Current maintenance base
+
+The h2 transport patch is now based on upstream stable `actix-http` 3.18.12,
+tag `http-v3.18.12`, commit `a1d3c932cad97eade59bae5640f9ff10ac6594ed`.
+The original paired server/client patch applies without conflicts. Upstream
+HTTP/1 Host validation, chunk framing and compression fixes stay in place;
+the public Actix `http` 0.2 model and private h2 `http` 1 conversion remain.
+
+Rust 1.99.0 compilation and H2/TLS regression results for this maintenance
+revision are recorded separately. The counts and hashes below are historical
+evidence for the original 3.13.3 port and do not validate this new base.
+
+## Historical PoC source
 
 - Upstream: `https://github.com/actix/actix-web`
 - Exact `main` commit: `e5e99114d6e871d48dbe3dada7f634821cb3885d`

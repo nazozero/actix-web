@@ -10,7 +10,7 @@ use std::{
     },
 };
 
-use actix_http::{HttpService, Request, Response};
+use actix_http::{HttpMessage, HttpService, Request, Response};
 use actix_http_test::test_server;
 use actix_service::{fn_service, map_config, ServiceFactoryExt};
 use actix_utils::future::ok;

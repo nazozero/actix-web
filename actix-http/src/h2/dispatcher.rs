@@ -184,7 +184,9 @@ where
                                     tracing::error!("Response payload stream error: {err:?}");
                                 }
                                 DispatchError::InvalidResponse => {
-                                    tracing::error!("Response metadata could not cross the HTTP/2 boundary");
+                                    tracing::error!(
+                                        "Response metadata could not cross the HTTP/2 boundary"
+                                    );
                                 }
                             }
                         }
@@ -335,8 +337,10 @@ fn prepare_response(
         BodySize::None | BodySize::Stream => {}
 
         BodySize::Sized(0) => {
-            res.headers_mut()
-                .insert(http_1::header::CONTENT_LENGTH, http_1::HeaderValue::from_static("0"));
+            res.headers_mut().insert(
+                http_1::header::CONTENT_LENGTH,
+                http_1::HeaderValue::from_static("0"),
+            );
         }
 
         BodySize::Sized(len) => {

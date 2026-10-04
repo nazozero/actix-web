@@ -156,7 +156,8 @@ async fn h2_streaming_body_does_not_send_transfer_encoding() {
 #[actix_rt::test]
 async fn h2_preserves_sensitive_duplicate_headers_in_both_directions() {
     let rcgen::CertifiedKey { cert, signing_key } =
-        rcgen::generate_simple_self_signed(["localhost".to_owned(), "127.0.0.1".to_owned()]).unwrap();
+        rcgen::generate_simple_self_signed(["localhost".to_owned(), "127.0.0.1".to_owned()])
+            .unwrap();
     let cert = X509::from_pem(cert.pem().as_bytes()).unwrap();
     let key = PKey::private_key_from_pem(signing_key.serialize_pem().as_bytes()).unwrap();
     let mut acceptor = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
@@ -167,20 +168,30 @@ async fn h2_preserves_sensitive_duplicate_headers_in_both_directions() {
     let srv = test_server(move || {
         HttpService::build()
             .h2(|req: Request| async move {
-                let values = req.headers().get_all("x-private-context").collect::<Vec<_>>();
-                assert_eq!(values.iter().map(|v| v.as_bytes()).collect::<Vec<_>>(), [b"first".as_slice(), b"second".as_slice()]);
+                let values = req
+                    .headers()
+                    .get_all("x-private-context")
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    values.iter().map(|v| v.as_bytes()).collect::<Vec<_>>(),
+                    [b"first".as_slice(), b"second".as_slice()]
+                );
                 assert!(values[0].is_sensitive());
                 assert!(!values[1].is_sensitive());
                 assert!(!format!("{:?}", values[0]).contains("first"));
                 let mut response = Response::ok();
                 for value in values {
-                    response.headers_mut().append(header::HeaderName::from_static("x-private-context"), value.clone());
+                    response.headers_mut().append(
+                        header::HeaderName::from_static("x-private-context"),
+                        value.clone(),
+                    );
                 }
                 Ok::<_, Infallible>(response)
             })
             .openssl(acceptor.clone())
             .map_err(|_| ())
-    }).await;
+    })
+    .await;
     let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
     connector.cert_store_mut().add_cert(cert).unwrap();
     connector.set_alpn_protos(b"\x02h2").unwrap();
@@ -190,14 +201,26 @@ async fn h2_preserves_sensitive_duplicate_headers_in_both_directions() {
         .finish();
     let mut sensitive = header::HeaderValue::from_static("first");
     sensitive.set_sensitive(true);
-    let response = client.get(srv.surl("/"))
-        .append_header((header::HeaderName::from_static("x-private-context"), sensitive))
+    let response = client
+        .get(srv.surl("/"))
+        .append_header((
+            header::HeaderName::from_static("x-private-context"),
+            sensitive,
+        ))
         .append_header(("x-private-context", "second"))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert!(response.status().is_success());
     assert_eq!(response.version(), Version::HTTP_2);
-    let values = response.headers().get_all("x-private-context").collect::<Vec<_>>();
-    assert_eq!(values.iter().map(|v| v.as_bytes()).collect::<Vec<_>>(), [b"first".as_slice(), b"second".as_slice()]);
+    let values = response
+        .headers()
+        .get_all("x-private-context")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        values.iter().map(|v| v.as_bytes()).collect::<Vec<_>>(),
+        [b"first".as_slice(), b"second".as_slice()]
+    );
     assert!(values[0].is_sensitive());
     assert!(!values[1].is_sensitive());
     assert!(!format!("{:?}", values[0]).contains("first"));

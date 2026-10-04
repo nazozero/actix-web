@@ -11,9 +11,7 @@ use h2::{
     client::{Builder, Connection, SendRequest},
     SendStream,
 };
-use http::{
-    header::{CONNECTION, CONTENT_LENGTH, HOST, TRANSFER_ENCODING},
-};
+use http::header::{CONNECTION, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use log::trace;
 
 use super::{
@@ -59,12 +57,10 @@ where
     let _ = match length {
         BodySize::None => None,
 
-        BodySize::Sized(0) => {
-            req.headers_mut().insert(
-                http_1::header::CONTENT_LENGTH,
-                http_1::HeaderValue::from_static("0"),
-            )
-        }
+        BodySize::Sized(0) => req.headers_mut().insert(
+            http_1::header::CONTENT_LENGTH,
+            http_1::HeaderValue::from_static("0"),
+        ),
 
         BodySize::Sized(len) => {
             let mut buf = itoa::Buffer::new();
@@ -112,7 +108,8 @@ where
         let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
             .map_err(h2_boundary_error)?;
         let sensitive = value.is_sensitive();
-        let mut value = http_1::HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
+        let mut value =
+            http_1::HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
         value.set_sensitive(sensitive);
         req.headers_mut().append(key, value);
     }
@@ -148,7 +145,12 @@ where
         http_1::Version::HTTP_11 => Version::HTTP_11,
         http_1::Version::HTTP_2 => Version::HTTP_2,
         http_1::Version::HTTP_3 => Version::HTTP_3,
-        _ => return Err(SendRequestError::Custom(Box::new(H2BoundaryError), Box::new("unsupported h2 HTTP version"))),
+        _ => {
+            return Err(SendRequestError::Custom(
+                Box::new(H2BoundaryError),
+                Box::new("unsupported h2 HTTP version"),
+            ))
+        }
     };
     let mut headers = HeaderMap::with_capacity(parts.headers.len());
     for (name, value) in &parts.headers {
@@ -180,7 +182,10 @@ fn h2_boundary_error<E>(_err: E) -> SendRequestError
 where
     E: std::error::Error + 'static,
 {
-    SendRequestError::Custom(Box::new(H2BoundaryError), Box::new("invalid h2 HTTP metadata"))
+    SendRequestError::Custom(
+        Box::new(H2BoundaryError),
+        Box::new("invalid h2 HTTP metadata"),
+    )
 }
 
 async fn send_body<B>(body: B, mut send: SendStream<Bytes>) -> Result<(), SendRequestError>

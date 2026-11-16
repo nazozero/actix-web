@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use `http` 1.x metadata, sharing URI and header storage with the HTTP/2 transport.
+
 ## 3.11.0
 
 - Add `Client::query()` method for constructing HTTP `QUERY` requests.

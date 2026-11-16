@@ -1173,6 +1173,29 @@ mod tests {
     }
 
     #[test]
+    fn http_metadata_preserves_request_target_bytes() {
+        for target in [
+            "/a%2fb/%25?x=%2F+%252F&empty=",
+            "http://localhost:8080/a%2Fb?x=%23",
+            "//path?query=value",
+            "/тест?query=значение",
+        ] {
+            let request = format!("X#$%&' {target} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            let req = parse_ready!(&mut BytesMut::from(request.as_str()));
+            assert_eq!(req.method().as_str(), "X#$%&'");
+            assert_eq!(req.uri().to_string(), target);
+        }
+
+        for request in [
+            b"GET /bad\x7f HTTP/1.1\r\nHost: localhost\r\n\r\n".as_slice(),
+            b"GET /bad\xff HTTP/1.1\r\nHost: localhost\r\n\r\n".as_slice(),
+            b"GET / HTTP/1.1\r\nHost: localhost\r\nx-\"bad: value\r\n\r\n".as_slice(),
+        ] {
+            expect_parse_err!(&mut BytesMut::from(request));
+        }
+    }
+
+    #[test]
     fn test_http_request_parser_bad_method() {
         expect_parse_err!(&mut BytesMut::from("!12%()+=~$ /get HTTP/1.1\r\n\r\n"));
     }

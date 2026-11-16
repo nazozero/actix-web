@@ -29,7 +29,7 @@ use crate::{
         UPGRADE,
     },
     service::HttpFlow,
-    Extensions, Method, OnConnectData, Payload, Request, Response, ResponseHead, Uri, Version,
+    Extensions, Method, OnConnectData, Payload, Request, Response, ResponseHead, Version,
 };
 
 const CHUNK_SIZE: usize = 16_384;
@@ -141,38 +141,13 @@ where
                     let payload = crate::h2::Payload::new(body);
                     let pl = Payload::H2 { payload };
                     let mut req = Request::with_payload(pl);
-                    let head_req = parts.method == http_1::Method::HEAD;
-
-                    // h2 0.4 uses http 1 while Actix's public/internal request model remains
-                    // on http 0.2. Convert only at this transport boundary.
-                    let method = Method::from_bytes(parts.method.as_str().as_bytes())
-                        .map_err(|_| crate::error::DispatchError::InternalError)?;
-                    let uri = parts
-                        .uri
-                        .to_string()
-                        .parse::<Uri>()
-                        .map_err(|_| crate::error::DispatchError::InternalError)?;
-                    let version = match parts.version {
-                        http_1::Version::HTTP_09 => Version::HTTP_09,
-                        http_1::Version::HTTP_10 => Version::HTTP_10,
-                        http_1::Version::HTTP_11 => Version::HTTP_11,
-                        http_1::Version::HTTP_2 => Version::HTTP_2,
-                        http_1::Version::HTTP_3 => Version::HTTP_3,
-                        _ => return Poll::Ready(Err(crate::error::DispatchError::InternalError)),
-                    };
-                    let mut headers = HeaderMap::with_capacity(parts.headers.len());
-                    for (name, value) in &parts.headers {
-                        let name = HeaderName::from_bytes(name.as_str().as_bytes())
-                            .map_err(|_| crate::error::DispatchError::InternalError)?;
-                        let value = header_value_from_h2(value)?;
-                        headers.append(name, value);
-                    }
+                    let head_req = parts.method == Method::HEAD;
 
                     let head = req.head_mut();
-                    head.uri = uri;
-                    head.method = method;
-                    head.version = version;
-                    head.headers = headers;
+                    head.uri = parts.uri;
+                    head.method = parts.method;
+                    head.version = parts.version;
+                    head.headers = HeaderMap::from(parts.headers);
                     head.peer_addr = this.peer_addr;
 
                     req.conn_data.clone_from(&this.conn_data);
@@ -202,11 +177,6 @@ where
                                 }
                                 DispatchError::ResponseBody(err) => {
                                     tracing::error!("Response payload stream error: {err:?}");
-                                }
-                                DispatchError::InvalidResponse => {
-                                    tracing::error!(
-                                        "Response metadata could not cross the HTTP/2 boundary"
-                                    );
                                 }
                             }
                         }
@@ -256,7 +226,6 @@ enum DispatchError {
     SendResponse(h2::Error),
     SendData(h2::Error),
     ResponseBody(Box<dyn StdError>),
-    InvalidResponse,
 }
 
 async fn handle_response<B>(
@@ -272,7 +241,7 @@ where
 
     // prepare response.
     let mut size = body.size();
-    let res = prepare_response(config, res.head(), &mut size)?;
+    let res = prepare_response(config, res.head(), &mut size);
     let eof_or_head = size.is_eof() || head_req;
 
     // send response head and return on eof.
@@ -332,14 +301,13 @@ fn prepare_response(
     config: ServiceConfig,
     head: &ResponseHead,
     size: &mut BodySize,
-) -> Result<http_1::Response<()>, DispatchError> {
+) -> http::Response<()> {
     let mut has_date = false;
     let mut skip_len = size != &BodySize::Stream;
 
-    let mut res = http_1::Response::new(());
-    *res.status_mut() = http_1::StatusCode::from_u16(head.status.as_u16())
-        .map_err(|_| DispatchError::InvalidResponse)?;
-    *res.version_mut() = http_1::Version::HTTP_2;
+    let mut res = http::Response::new(());
+    *res.status_mut() = head.status;
+    *res.version_mut() = Version::HTTP_2;
 
     // Content length
     match head.status {
@@ -357,20 +325,13 @@ fn prepare_response(
         BodySize::None | BodySize::Stream => {}
 
         BodySize::Sized(0) => {
-            res.headers_mut().insert(
-                http_1::header::CONTENT_LENGTH,
-                http_1::HeaderValue::from_static("0"),
-            );
+            res.headers_mut()
+                .insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
         }
 
         BodySize::Sized(len) => {
-            let mut buf = itoa::Buffer::new();
-
-            res.headers_mut().insert(
-                http_1::header::CONTENT_LENGTH,
-                http_1::HeaderValue::from_str(buf.format(*len))
-                    .map_err(|_| DispatchError::InvalidResponse)?,
-            );
+            res.headers_mut()
+                .insert(CONTENT_LENGTH, HeaderValue::from(*len));
         }
     };
 
@@ -395,10 +356,7 @@ fn prepare_response(
             _ => {}
         }
 
-        let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
-            .map_err(|_| DispatchError::InvalidResponse)?;
-        let value = header_value_to_h2(value)?;
-        res.headers_mut().append(key, value);
+        res.headers_mut().append(key.clone(), value.clone());
     }
 
     // set date header
@@ -406,33 +364,13 @@ fn prepare_response(
         let mut bytes = BytesMut::with_capacity(29);
         config.write_date_header_value(&mut bytes);
         res.headers_mut().insert(
-            http_1::header::DATE,
+            DATE,
             // SAFETY: serialized date-times are known ASCII strings
-            unsafe { http_1::HeaderValue::from_maybe_shared_unchecked(bytes.freeze()) },
+            unsafe { HeaderValue::from_maybe_shared_unchecked(bytes.freeze()) },
         );
     }
 
-    Ok(res)
-}
-
-// HTTP version conversion belongs to this transport boundary. Keep the
-// per-value flag alongside the bytes rather than inferring it from the name.
-fn header_value_from_h2(
-    value: &http_1::HeaderValue,
-) -> Result<HeaderValue, crate::error::DispatchError> {
-    let sensitive = value.is_sensitive();
-    let mut value = HeaderValue::from_bytes(value.as_bytes())
-        .map_err(|_| crate::error::DispatchError::InternalError)?;
-    value.set_sensitive(sensitive);
-    Ok(value)
-}
-
-fn header_value_to_h2(value: &HeaderValue) -> Result<http_1::HeaderValue, DispatchError> {
-    let sensitive = value.is_sensitive();
-    let mut value = http_1::HeaderValue::from_bytes(value.as_bytes())
-        .map_err(|_| DispatchError::InvalidResponse)?;
-    value.set_sensitive(sensitive);
-    Ok(value)
+    res
 }
 
 #[cfg(test)]

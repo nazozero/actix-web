@@ -50,13 +50,13 @@ openssl = ["tls-openssl", "actix-http/openssl", "awc/openssl"]
 
 [dependencies]
 actix-codec = "0.5"
-actix-http = "3.7"
-actix-http-test = "3"
+actix-http = { version = "3.7", path = "../actix-http" }
+actix-http-test = { version = "3", path = "../actix-http-test" }
 actix-rt = "2.1"
 actix-service = "2"
 actix-utils = "3"
-actix-web = { version = "4.6", default-features = false, features = ["cookies"] }
-awc = { version = "3.11", default-features = false, features = ["cookies"] }
+actix-web = { version = "4.6", path = "../actix-web", default-features = false, features = ["cookies"] }
+awc = { version = "3.11", path = "../awc", default-features = false, features = ["cookies"] }
 
 futures-core = { version = "0.3.17", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.17", default-features = false, features = [] }

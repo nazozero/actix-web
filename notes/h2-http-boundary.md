@@ -1,118 +1,65 @@
-# Maintained `actix-http` h2 0.4 / http 1 transport boundary
+# Shared HTTP metadata
 
-## Current maintenance base
+The Actix server, router, client, and HTTP/2 transport use `http` 1.x metadata.
+Applications can share these types with framework-neutral HTTP handlers without
+serializing and reparsing methods, URIs, status codes, header names, or values.
 
-The h2 transport patch is now based on upstream stable `actix-http` 3.18.12,
-tag `http-v3.18.12`, commit `a1d3c932cad97eade59bae5640f9ff10ac6594ed`.
-The original paired server/client patch applies without conflicts. Upstream
-HTTP/1 Host validation, chunk framing and compression fixes stay in place;
-the public Actix `http` 0.2 model and private h2 `http` 1 conversion remain.
+## Coupled packages
 
-Rust 1.99.0 compilation and H2/TLS regression results for this maintenance
-revision are recorded separately. The counts and hashes below are historical
-evidence for the original 3.13.3 port and do not validate this new base.
+| Package | Shared contract |
+| --- | --- |
+| `actix-http` | Exposes `http` 1.x metadata through its request and response heads and uses the same types as `h2` 0.4. |
+| `actix-router` | Accepts the same `http::Uri` in `Url` and `ResourcePath`. |
+| `awc` | Uses the same HTTP metadata and concrete `h2` stream types as `actix-http`. |
+| `actix-http-test` | Uses the same method types as the paired client and server. |
 
-## Historical PoC source
+Consumers that name `http` types directly must use version 1.x. An application
+patching this fork must select compatible `actix-http` and `actix-router`
+packages together. Applications using `awc` or the test server must also select
+the paired client packages. Actix Web obtains its HTTP metadata types from
+`actix-http` and its URI router from `actix-router`.
 
-- Upstream: `https://github.com/actix/actix-web`
-- Exact `main` commit: `e5e99114d6e871d48dbe3dada7f634821cb3885d`
-- `actix-http` package version at that commit: `3.13.3`
+## Ownership and representation
 
-## Dependency and type boundary
+HTTP/2 ingress moves the accepted request's method, URI, version, and header
+values into the Actix request head. Client ingress similarly moves response
+metadata. Outbound request URIs and borrowed header values use same-type clones,
+which share their existing byte storage. These transfers preserve raw URI
+spelling, including escapes, authority, and query data; they do not normalize or
+reparse the URI.
 
-| Boundary | Existing type | h2 0.4 type | Required PoC treatment |
-|---|---|---|---|
-| Actix public/internal HTTP model | `http` 0.2 (`crate::{Method, RequestHead, ResponseHead}`) | n/a | Keep unchanged: it is shared throughout Actix and NazoAuth’s dependency graph. |
-| h2 server accepted request | h2 0.3 returns `http` 0.2 `Request<RecvStream>` | h2 0.4 returns `http` 1 `Request<RecvStream>` | Convert request method, URI, version and headers at the dispatcher ingress. Extensions are not consumed here. |
-| h2 outbound response | `prepare_response` builds `http` 0.2 `Response<()>` | `SendResponse::send_response` requires `http` 1 `Response<()>` | Build the h2 response with `http` 1 and copy Actix response metadata across the boundary. |
-| h2 client tests | `::http` 0.2 `Request<()>` | h2 0.4 client requires `http` 1 `Request<()>` | Use explicit `http_1` dependency in H2-only tests. |
+Actix's `HeaderMap` and `http::HeaderMap` have different collection layouts.
+Transferring between them still allocates destination collection storage and
+iterates the headers. Owned header values move between collections; borrowed
+values share their storage through `HeaderValue::clone`. No per-value byte copy
+or cross-version owner wrapper is needed. Repeated values retain their order
+and each value retains its `is_sensitive` flag, including custom header names
+and opaque value bytes. The flag remains available for local Debug redaction
+and the HTTP/2 encoder's indexing policy; receiver-side flags are governed by
+the HTTP/2 decoder.
 
-`http` 0.2 and `http` 1 cannot share `Method`, `Uri`, `Version`, `HeaderName`,
-`HeaderValue`, `HeaderMap`, request, or response types. The smallest safe port is
-therefore dual-versioning `http`: retain `http` 0.2 for the Actix API and add an
-aliased `http_1` only inside the h2 transport module and its direct tests.
+Bodies retain the existing streaming `Payload` and `Bytes` ownership. Metadata
+transfer does not collect or copy body data. HTTP/2 body framing, HEAD handling,
+hop-by-hop header filtering, flow control, and graceful shutdown remain owned
+by the transport.
 
-## Conversion rules / failure behavior
+## Parsing and integration
 
-1. H2 ingress converts method from its ASCII representation, URI from its
-   serialized form, known HTTP versions by an exhaustive map, and every header
-   name/value from bytes. An impossible conversion terminates the H2 dispatch
-   with a protocol `DispatchError`; it is never silently dropped or rewritten.
-2. H2 egress sets HTTP/2 explicitly, converts the status code numerically, and
-   copies each header byte-for-byte into a new `http_1::HeaderMap`. Both
-   server and client directions retain each value's `is_sensitive` flag and
-   duplicate-value order. This keeps Debug redaction and HPACK never-index
-   metadata intact for custom sensitive headers as well as standard names.
-3. Hop-by-hop header removal and body framing remain in the existing
-   `prepare_response` owner. The port must not disable HTTP/2 or weaken those
-   existing semantics.
+HTTP/1 request lines and headers are parsed by `httparse` and validated using
+the shared `http` types. The accepted metadata follows `http` 1.x parsing rules,
+including valid extension-method tokens and UTF-8 paths and queries. URI
+control characters and invalid UTF-8, and malformed header names, are rejected.
+Router path quoting and parameter extraction remain separate from the raw URI.
 
-## Minimal compilation slice
+Integration tests cover actual HTTP/1 parsing and framing, raw URI preservation,
+repeated and opaque headers, sensitivity flags and shared storage, plus HTTP/2
+negotiation, flow control, and shutdown. A typed request conversion test alone
+does not exercise the parser boundary.
 
-`cargo check -p actix-http --features http2` is the first compiler gate. It
-exercises the production h2 dispatcher without pulling TLS integration tests.
-After it compiles, run Actix’s H2 test set serially. No NazoAuth checkout is
-modified by this PoC.
+## Upstream retirement
 
-## Observed gates
-
-- `cargo check -p actix-http --features http2 --jobs 1`: **PASS**. The lockfile
-  resolved `h2 0.4.17` and `http 1.5.0`, while retaining the old `h2 0.3.27`
-  and `http 0.2.12` where other workspace packages still require them.
-- `cargo test -p actix-http --features http2 --test test_h2_timer --jobs 1 --
-  --test-threads=1`: **BLOCKED BEFORE TEST EXECUTION** (`exit 101`; see
-  `test_h2_timer.log`). Cargo compiles direct dev-dependency `awc 3.8.2` before
-  the test binary. `awc/src/client/h2proto.rs:130` receives an h2 0.3
-  `RecvStream`, but `actix-http::Payload` now has a `From` implementation only
-  for h2 0.4 `RecvStream`, so the package graph fails with E0277.
-
-This is an API graph boundary, not an h2 test failure: `actix-http` publicly
-exposes h2's concrete `RecvStream` through `Payload`. A safe upstream port
-must either migrate the coupled `awc` client in the same compatible release, or
-introduce an Actix-owned stream abstraction that avoids exposing a concrete h2
-major version. Retaining parallel `From<RecvStream>` implementations is
-impossible because the trait/type pair is identical apart from the dependency
-version. A NazoAuth-only Cargo override would produce the same incompatibility
-and is not a safe remediation.
-
-The paired `actix-http` + `awc` migration in this branch closes that boundary.
-Its recorded serial gates passed before publication:
-
-- `cargo test -p actix-http --features http2 --jobs 1 -- --test-threads=1`:
-  **PASS**, 308 passed, 0 failed, 2 ignored. Log SHA-256:
-  `b09663b81310e33d27bf574d683170c01d76f775905d6dd0c89cab858aa4b67c`.
-- `cargo test -p actix-http --features rustls-0_23,http2 --test test_rustls
-  --jobs 1 -- --test-threads=1`: **PASS**, 21 passed, 0
-  failed. Log SHA-256:
-  `788bebf536443448f90042e314d3fd48c9f1e98cdf29527ea4c09f33ebb70cd7`.
-- `cargo test -p awc --features rustls-0_23-webpki-roots --test
-  test_rustls_client test_connection_reuse_h2 --jobs 1 -- --test-threads=1`:
-  **PASS**, 1 passed,
-  0 failed. Log SHA-256:
-  `4c8138d25ebd0f2a2258f49104b23f5c3c182b1236ca86d21d1ce5a0c7c5d8b8`.
-
-The evidence logs are intentionally not committed to this source branch.
-
-## Static h2 0.3 consumer closure
-
-The workspace manifests contain exactly two direct h2 0.3 consumers:
-
-| Package | h2-facing production API / files | Required coupled change |
-|---|---|---|
-| `actix-http` | `src/h2/{mod,dispatcher}.rs`; `src/payload.rs` publishes `From<h2::RecvStream>`; `src/error.rs` publishes `h2::Error` variants | Upgrade h2, retain `http` 0.2 for Actix model, add private `http_1` boundary conversion. |
-| `awc` | `src/client/{connection,h2proto,error}.rs`; `H2Connection` stores `SendRequest`; `h2proto` sends/receives concrete h2 request/response streams; public errors contain `h2::Error` | Upgrade h2 together with `actix-http`, add the paired HTTP metadata conversion at the client boundary. |
-
-Direct h2 test consumers are `actix-http/tests/test_h2_timer.rs` and
-`actix-http/tests/test_server.rs`; they must construct `http_1::Request` after
-the library port. No other workspace manifest declares `h2`. `actix-web`,
-`actix-router`, `actix-http-test`, and `actix-server` do not directly expose an
-h2 type in this checkout. This closure excludes transitive h2 0.3 copies that
-remain in unrelated dependency paths; they cannot satisfy the concrete public
-types above and must not be used as an adapter.
-
-The local `HeaderValue` conversion tests cover both flags, duplicate values and
-opaque header bytes in each owner. The real trusted-TLS H2 round-trip covers
-duplicate byte order. h2 0.4.19's HPACK decoder currently discards the incoming
-never-index marker (its `LiteralNeverIndexed` branch has a tracking TODO), so
-that wire round-trip cannot assert a restored receiver-side sensitivity flag.
-This port preserves the local input flag; it does not change h2's decoder.
+Remove the fork overrides when released upstream packages provide a compatible
+shared HTTP 1.x metadata graph across `actix-http`, `actix-router`, and any
+selected client packages, together with the maintained HTTP/2 and transport
+security behavior. Update the coupled packages as one dependency change and
+validate the application's ingress, streaming, TLS, and replay contracts.

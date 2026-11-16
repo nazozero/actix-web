@@ -1,7 +1,7 @@
 use super::*;
 
-#[test]
-fn h2_header_conversions_preserve_each_values_sensitivity_and_bytes() {
+#[actix_rt::test]
+async fn h2_header_conversions_preserve_each_values_sensitivity_and_bytes() {
     let mut original = HeaderMap::new();
     for (bytes, sensitive) in [
         (b"first".as_slice(), true),
@@ -12,33 +12,34 @@ fn h2_header_conversions_preserve_each_values_sensitivity_and_bytes() {
         value.set_sensitive(sensitive);
         original.append(HeaderName::from_static("x-private-context"), value);
     }
-    let mut h2 = http_1::HeaderMap::new();
-    for (name, value) in &original {
-        let converted = header_value_to_h2(value)
-            .ok()
-            .expect("valid h2 header value");
-        assert_eq!(converted.as_bytes(), value.as_bytes());
-        assert_eq!(converted.is_sensitive(), value.is_sensitive());
-        if value.is_sensitive() {
-            assert!(!format!("{:?}", converted).contains("first"));
+    let mut head = ResponseHead::new(http::StatusCode::OK);
+    head.headers = original;
+    let response = prepare_response(ServiceConfig::default(), &head, &mut BodySize::Sized(0));
+    let h2 = response.headers();
+    for (source, shared) in head
+        .headers
+        .get_all("x-private-context")
+        .zip(h2.get_all("x-private-context"))
+    {
+        assert_eq!(shared.as_bytes(), source.as_bytes());
+        assert_eq!(shared.as_bytes().as_ptr(), source.as_bytes().as_ptr());
+        assert_eq!(shared.is_sensitive(), source.is_sensitive());
+        if source.is_sensitive() {
+            assert!(!format!("{:?}", shared).contains("first"));
         }
-        h2.append(
-            http_1::header::HeaderName::from_bytes(name.as_str().as_bytes()).unwrap(),
-            converted,
-        );
     }
-    let mut round_trip = HeaderMap::new();
-    for (name, value) in &h2 {
-        let converted = header_value_from_h2(value).unwrap();
-        assert_eq!(converted.as_bytes(), value.as_bytes());
-        assert_eq!(converted.is_sensitive(), value.is_sensitive());
-        if value.is_sensitive() {
-            assert!(!format!("{:?}", converted).contains("first"));
+    let round_trip = HeaderMap::from(response.into_parts().0.headers);
+    for (source, shared) in head
+        .headers
+        .get_all("x-private-context")
+        .zip(round_trip.get_all("x-private-context"))
+    {
+        assert_eq!(shared.as_bytes(), source.as_bytes());
+        assert_eq!(shared.as_bytes().as_ptr(), source.as_bytes().as_ptr());
+        assert_eq!(shared.is_sensitive(), source.is_sensitive());
+        if source.is_sensitive() {
+            assert!(!format!("{:?}", shared).contains("first"));
         }
-        round_trip.append(
-            HeaderName::from_bytes(name.as_str().as_bytes()).unwrap(),
-            converted,
-        );
     }
     let values = round_trip.get_all("x-private-context").collect::<Vec<_>>();
     assert_eq!(

@@ -41,7 +41,7 @@ jobs:
 
   deny:
     name: deny
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: useblacksmith/checkout@v1.8.2
@@ -72,7 +72,7 @@ jobs:
       contents: read
       checks: write # to add clippy checks to PR diffs
 
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: useblacksmith/checkout@v1.8.2
         with:
@@ -93,7 +93,7 @@ jobs:
             -A unknown_lints -D clippy::todo -D clippy::dbg_macro
 
   lint-docs:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: useblacksmith/checkout@v1.8.2
         with:
@@ -112,7 +112,7 @@ jobs:
 
   check-external-types:
     if: false # rustdoc mismatch currently
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: useblacksmith/checkout@v1.8.2
         with:

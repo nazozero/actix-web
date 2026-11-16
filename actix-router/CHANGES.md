@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use `http` 1.x URI types in `Url` and `ResourcePath`.
+
 ## 0.5.5
 
 - Add support for extracting multi-component path params into a sequence (Vec, tuple, ...).

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use `http` 1.x for public HTTP metadata and parsing. HTTP/2 shares metadata with `h2` without a version conversion.
+
 ## 3.21.0
 
 - Enable `TCP_NODELAY` by default.

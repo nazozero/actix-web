@@ -1054,7 +1054,7 @@ async fn h2c_auto() {
     tokio::spawn(async move { connection.await.unwrap() });
     let mut h2 = h2.ready().await.unwrap();
 
-    let request = http_1::Request::new(());
+    let request = http::Request::new(());
     let (response, _) = h2.send_request(request, true).unwrap();
     let (head, mut body) = response.await.unwrap().into_parts();
     let body = body.data().await.unwrap().unwrap();
@@ -1090,7 +1090,7 @@ async fn h2_flow_control_window_sizes() {
     tokio::spawn(async move { connection.await.unwrap() });
     let mut h2 = h2.ready().await.unwrap();
 
-    let request = http_1::Request::builder()
+    let request = http::Request::builder()
         .method("POST")
         .uri("/")
         .body(())
@@ -1167,7 +1167,7 @@ async fn h2_graceful_shutdown_sends_goaway() {
     let conn = tokio::spawn(conn);
 
     let mut client = client.ready().await.unwrap();
-    let request = http_1::Request::get("http://localhost/slow")
+    let request = http::Request::get("http://localhost/slow")
         .body(())
         .unwrap();
     let (slow, _) = client.send_request(request, true).unwrap();

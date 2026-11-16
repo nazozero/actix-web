@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use `http` 1.x method types with the updated Actix HTTP client.
+
 ## 3.4.0
 
 - Add `TestServer::{query, squery}()` methods for constructing HTTP `QUERY` requests.

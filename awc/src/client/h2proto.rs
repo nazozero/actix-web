@@ -2,8 +2,8 @@ use std::{future::Future, pin::pin};
 
 use actix_http::{
     body::{BodySize, MessageBody},
-    header::{HeaderMap, HeaderName, HeaderValue},
-    Method, Payload, RequestHeadType, ResponseHead, StatusCode, Version,
+    header::{HeaderMap, HeaderValue},
+    Method, Payload, RequestHeadType, ResponseHead, Version,
 };
 use actix_utils::future::poll_fn;
 use bytes::Bytes;
@@ -37,18 +37,10 @@ where
     let length = body.size();
     let eof = matches!(length, BodySize::None | BodySize::Sized(0));
 
-    // h2 0.4 uses http 1 while the Actix request/response model remains on http 0.2.
-    // This client-side conversion is paired with actix-http's server dispatcher boundary.
-    let mut req = http_1::Request::new(());
-    *req.uri_mut() = head
-        .as_ref()
-        .uri
-        .to_string()
-        .parse::<http_1::Uri>()
-        .map_err(h2_boundary_error)?;
-    *req.method_mut() = http_1::Method::from_bytes(head.as_ref().method.as_str().as_bytes())
-        .map_err(h2_boundary_error)?;
-    *req.version_mut() = http_1::Version::HTTP_2;
+    let mut req = http::Request::new(());
+    *req.uri_mut() = head.as_ref().uri.clone();
+    *req.method_mut() = head.as_ref().method.clone();
+    *req.version_mut() = Version::HTTP_2;
 
     let mut skip_len = true;
     // let mut has_date = false;
@@ -57,19 +49,13 @@ where
     let _ = match length {
         BodySize::None => None,
 
-        BodySize::Sized(0) => req.headers_mut().insert(
-            http_1::header::CONTENT_LENGTH,
-            http_1::HeaderValue::from_static("0"),
-        ),
+        BodySize::Sized(0) => req
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from_static("0")),
 
-        BodySize::Sized(len) => {
-            let mut buf = itoa::Buffer::new();
-
-            req.headers_mut().insert(
-                http_1::header::CONTENT_LENGTH,
-                http_1::HeaderValue::from_str(buf.format(len)).map_err(h2_boundary_error)?,
-            )
-        }
+        BodySize::Sized(len) => req
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from(len)),
 
         BodySize::Stream => {
             skip_len = false;
@@ -105,10 +91,7 @@ where
             // DATE => has_date = true,
             _ => {}
         }
-        let key = http_1::header::HeaderName::from_bytes(key.as_str().as_bytes())
-            .map_err(h2_boundary_error)?;
-        let value = header_value_to_h2(value)?;
-        req.headers_mut().append(key, value);
+        req.headers_mut().append(key.clone(), value.clone());
     }
 
     let res = poll_fn(|cx| io.poll_ready(cx)).await;
@@ -135,52 +118,10 @@ where
     let (parts, body) = resp.into_parts();
     let payload = if head_req { Payload::None } else { body.into() };
 
-    let status = StatusCode::from_u16(parts.status.as_u16()).map_err(h2_boundary_error)?;
-    let version = match parts.version {
-        http_1::Version::HTTP_09 => Version::HTTP_09,
-        http_1::Version::HTTP_10 => Version::HTTP_10,
-        http_1::Version::HTTP_11 => Version::HTTP_11,
-        http_1::Version::HTTP_2 => Version::HTTP_2,
-        http_1::Version::HTTP_3 => Version::HTTP_3,
-        _ => {
-            return Err(SendRequestError::Custom(
-                Box::new(H2BoundaryError),
-                Box::new("unsupported h2 HTTP version"),
-            ))
-        }
-    };
-    let mut headers = HeaderMap::with_capacity(parts.headers.len());
-    for (name, value) in &parts.headers {
-        let name = HeaderName::from_bytes(name.as_str().as_bytes()).map_err(h2_boundary_error)?;
-        let value = header_value_from_h2(value)?;
-        headers.append(name, value);
-    }
-
-    let mut head = ResponseHead::new(status);
-    head.version = version;
-    head.headers = headers;
+    let mut head = ResponseHead::new(parts.status);
+    head.version = parts.version;
+    head.headers = HeaderMap::from(parts.headers);
     Ok((head, payload))
-}
-
-#[derive(Debug)]
-struct H2BoundaryError;
-
-impl std::fmt::Display for H2BoundaryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("HTTP metadata could not cross the h2/http type boundary")
-    }
-}
-
-impl std::error::Error for H2BoundaryError {}
-
-fn h2_boundary_error<E>(_err: E) -> SendRequestError
-where
-    E: std::error::Error + 'static,
-{
-    SendRequestError::Custom(
-        Box::new(H2BoundaryError),
-        Box::new("invalid h2 HTTP metadata"),
-    )
 }
 
 async fn send_body<B>(body: B, mut send: SendStream<Bytes>) -> Result<(), SendRequestError>
@@ -242,20 +183,6 @@ pub(crate) fn handshake<Io: ConnectionIo>(
         .initial_connection_window_size(config.conn_window_size)
         .enable_push(false);
     builder.handshake(io)
-}
-
-fn header_value_from_h2(value: &http_1::HeaderValue) -> Result<HeaderValue, SendRequestError> {
-    let sensitive = value.is_sensitive();
-    let mut value = HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
-    value.set_sensitive(sensitive);
-    Ok(value)
-}
-
-fn header_value_to_h2(value: &HeaderValue) -> Result<http_1::HeaderValue, SendRequestError> {
-    let sensitive = value.is_sensitive();
-    let mut value = http_1::HeaderValue::from_bytes(value.as_bytes()).map_err(h2_boundary_error)?;
-    value.set_sensitive(sensitive);
-    Ok(value)
 }
 
 #[cfg(test)]

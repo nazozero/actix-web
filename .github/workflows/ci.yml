@@ -86,6 +86,17 @@ jobs:
       - name: check default
         run: just check-default
 
+      - name: Build macOS MSRV test binaries
+        if: matrix.target.name == 'macOS' && matrix.version.name == 'msrv'
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          workspace_test_features="$(just --evaluate non_linux_all_features_list)"
+          cargo nextest run --no-run --no-tests=warn \
+            --workspace --exclude=actix-web-codegen --exclude=actix-multipart-derive \
+            --features="$workspace_test_features" \
+            --filter-expr="not test(test_reading_deflate_encoding_large_random_rustls)"
+
       - name: tests
         timeout-minutes: 30
         run: just test

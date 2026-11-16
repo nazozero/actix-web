@@ -14,10 +14,10 @@ edition = "2021"
 allowed_external_types = ["actix_http::*", "actix_service::*", "actix_web::*", "http::*", "mime::*"]
 
 [dependencies]
-actix-http = "3"
+actix-http = { version = "3", path = "../actix-http" }
 actix-service = "2"
 actix-utils = "3"
-actix-web = { version = "4", default-features = false }
+actix-web = { version = "4", path = "../actix-web", default-features = false }
 
 bitflags = "2"
 bytes = "1"
@@ -36,8 +36,8 @@ winapi-util = "0.1"
 
 [dev-dependencies]
 actix-rt = "2.7"
-actix-test = "0.1"
-actix-web = "4"
+actix-test = { version = "0.1", path = "../actix-test" }
+actix-web = { version = "4", path = "../actix-web" }
 env_logger = "0.11"
 filetime = "0.2"
 tempfile = "3.2"

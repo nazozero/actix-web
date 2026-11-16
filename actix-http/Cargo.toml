@@ -135,12 +135,12 @@ flate2 = { version = "1.0.13", optional = true }
 zstd = { version = "0.14", optional = true }
 
 [dev-dependencies]
-actix-http-test = { version = "3", features = ["openssl"] }
+actix-http-test = { version = "3", path = "../actix-http-test", features = ["openssl"] }
 actix-rt = "2.2"
 actix-server = "2"
 actix-tls = { version = "3.4", features = ["openssl", "rustls-0_23-webpki-roots"] }
-actix-web = "4"
-awc = { version = "3", default-features = false, features = ["openssl"] }
+actix-web = { version = "4", path = "../actix-web" }
+awc = { version = "3", path = "../awc", default-features = false, features = ["openssl"] }
 
 async-stream = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }

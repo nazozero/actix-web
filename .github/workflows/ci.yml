@@ -30,9 +30,9 @@ jobs:
       matrix:
         # prettier-ignore
         target:
-          - { name: Linux, os: blacksmith-2vcpu-ubuntu-2404, triple: x86_64-unknown-linux-gnu }
-          - { name: macOS, os: blacksmith-6vcpu-macos-latest, triple: x86_64-apple-darwin }
-          - { name: Windows, os: blacksmith-2vcpu-windows-2025, triple: x86_64-pc-windows-msvc }
+          - { name: Linux, os: ubuntu-24.04, triple: x86_64-unknown-linux-gnu }
+          - { name: macOS, os: macos-26-intel, triple: x86_64-apple-darwin }
+          - { name: Windows, os: windows-2025, triple: x86_64-pc-windows-msvc }
         version:
           - { name: msrv, version: "${{ needs.read_msrv.outputs.msrv }}" }
           - { name: stable, version: stable }
@@ -95,7 +95,7 @@ jobs:
 
   rustdoc:
     name: doc tests
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: useblacksmith/checkout@v1.8.2
         with:
